@@ -144,7 +144,7 @@ public final class MessageReceiver extends ClientEntity implements AmqpReceiver,
                     public void run() {
                         try {
                             underlyingFactory.getCBSChannel().sendToken(
-                                    underlyingFactory.getReactorScheduler(),
+                                    underlyingFactory.getReactorDispatcher(),
                                     underlyingFactory.getTokenProvider().getToken(tokenAudience, ClientConstants.TOKEN_VALIDITY),
                                     tokenAudience,
                                     new OperationResult<Void, Exception>() {
@@ -309,15 +309,14 @@ public final class MessageReceiver extends ClientEntity implements AmqpReceiver,
         this.creatingLink = false;
 
         if (exception == null) {
-            if (this.getIsClosingOrClosed()) {
-                this.receiveLink.close();
-                return;
-            }
-
             if (this.linkOpen != null && !this.linkOpen.getWork().isDone()) {
                 this.linkOpen.getWork().complete(this);
                 if (this.openTimer != null)
                     this.openTimer.cancel(false);
+            }
+
+            if (this.getIsClosingOrClosed()) {
+                return;
             }
 
             synchronized (this.errorConditionLock) {
@@ -542,7 +541,7 @@ public final class MessageReceiver extends ClientEntity implements AmqpReceiver,
 
         try {
             this.underlyingFactory.getCBSChannel().sendToken(
-                    this.underlyingFactory.getReactorScheduler(),
+                    this.underlyingFactory.getReactorDispatcher(),
                     this.underlyingFactory.getTokenProvider().getToken(tokenAudience, ClientConstants.TOKEN_VALIDITY),
                     tokenAudience,
                     new OperationResult<Void, Exception>() {
@@ -734,12 +733,13 @@ public final class MessageReceiver extends ClientEntity implements AmqpReceiver,
                     public void onEvent() {
                         if (receiveLink != null && receiveLink.getLocalState() != EndpointState.CLOSED) {
                             receiveLink.close();
-                        } else if (receiveLink == null || receiveLink.getRemoteState() == EndpointState.CLOSED) {
-                            if (closeTimer != null)
-                                closeTimer.cancel(false);
-
-                            linkClose.complete(null);
                         }
+
+                        if (closeTimer != null && !closeTimer.isCancelled()) {
+                            closeTimer.cancel(false);
+                        }
+
+                        linkClose.complete(null);
                     }
                 });
             } catch (IOException | RejectedExecutionException schedulerException) {

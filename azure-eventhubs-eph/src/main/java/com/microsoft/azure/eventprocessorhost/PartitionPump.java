@@ -203,8 +203,6 @@ class PartitionPump extends Closable implements PartitionReceiveHandler {
                 // Stage 3: set up other receiver options, create receiver if initial offset is valid
                 .thenComposeAsync((startAt) ->
                 {
-                    ReceiverOptions options = new ReceiverOptions();
-                    options.setReceiverRuntimeMetricEnabled(this.hostContext.getEventProcessorOptions().getReceiverRuntimeMetricEnabled());
                     long epoch = this.lease.getEpoch();
 
                     TRACE_LOGGER.info(this.hostContext.withHostAndPartition(this.partitionContext,
@@ -213,10 +211,15 @@ class PartitionPump extends Closable implements PartitionReceiveHandler {
                     CompletableFuture<PartitionReceiver> receiverFuture = null;
 
                     try {
+                        ReceiverOptions options = new ReceiverOptions();
+                        options.setReceiverRuntimeMetricEnabled(this.hostContext.getEventProcessorOptions().getReceiverRuntimeMetricEnabled());
+                        options.setPrefetchCount(this.hostContext.getEventProcessorOptions().getPrefetchCount());
+
                         receiverFuture = this.eventHubClient.createEpochReceiver(this.partitionContext.getConsumerGroupName(),
                                 this.partitionContext.getPartitionId(), startAt, epoch, options);
                         this.internalOperationFuture = receiverFuture;
                     } catch (EventHubException e) {
+                        TRACE_LOGGER.error(this.hostContext.withHostAndPartition(this.partitionContext, "Opening EH receiver failed with an error "), e);
                         receiverFuture = new CompletableFuture<PartitionReceiver>();
                         receiverFuture.completeExceptionally(e);
                     }
@@ -243,14 +246,6 @@ class PartitionPump extends Closable implements PartitionReceiveHandler {
                 // Stage 5: on success, set up the receiver
                 .thenApplyAsync((receiver) ->
                 {
-                    if (this.hostContext.getEventProcessorOptions().getPrefetchCount() > PartitionReceiver.DEFAULT_PREFETCH_COUNT) {
-                        try {
-                            this.partitionReceiver.setPrefetchCount(this.hostContext.getEventProcessorOptions().getPrefetchCount());
-                        } catch (Exception e1) {
-                            TRACE_LOGGER.error(this.hostContext.withHostAndPartition(this.partitionContext, "PartitionReceiver failed setting prefetch count"), e1);
-                            throw new CompletionException(e1);
-                        }
-                    }
                     this.partitionReceiver.setReceiveTimeout(this.hostContext.getEventProcessorOptions().getReceiveTimeOut());
 
                     TRACE_LOGGER.info(this.hostContext.withHostAndPartition(this.partitionContext,
